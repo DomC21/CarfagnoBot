@@ -9,6 +9,10 @@ readme = "README.md"
 python = "^3.12"
 fastapi = {extras = ["standard"], version = "^0.115.11"}
 psycopg = {extras = ["binary"], version = "^3.2.5"}
+uvicorn = "^0.34.0"
+python-jose = {extras = ["cryptography"], version = "^3.4.0"}
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+python-multipart = "^0.0.20"
 
 
 [build-system]
