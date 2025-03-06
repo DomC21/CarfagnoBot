@@ -66,6 +66,7 @@ BADGE_CATEGORY_MAP = {
     "all_advanced": "achievement"
 }
 
+
 def get_badge_by_id(badge_id):
     """Get badge details by ID."""
     for badge in BADGES:
@@ -73,9 +74,11 @@ def get_badge_by_id(badge_id):
             return badge
     return None
 
+
 def get_badges_by_category(category_id):
     """Get all badges in a category."""
     return [badge for badge in BADGES if BADGE_CATEGORY_MAP.get(badge["id"]) == category_id]
+
 
 def get_all_badges():
     """Get all available badges."""
