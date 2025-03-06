@@ -19,6 +19,9 @@ pydantic-extra-types = "^2.10.2"
 pydantic = {extras = ["email"], version = "^2.10.6"}
 
 
+[tool.poetry.group.dev.dependencies]
+flake8 = "^7.1.2"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
