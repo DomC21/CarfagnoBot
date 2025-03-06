@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import User, UserProgress, UserBadge
 from app.auth.security import get_current_active_user
-from app.data.investing_topics import MAIN_TOPICS_LIST, SUBTOPICS
+from app.data.investing_topics import MAIN_TOPICS_LIST, SUBTOPICS_CONTENT
 
 router = APIRouter(prefix="/api/progress", tags=["progress"])
 
@@ -24,7 +24,7 @@ async def track_topic_progress(
             valid_topic = True
             break
 
-    if not valid_topic and topic_id in SUBTOPICS:
+    if not valid_topic and topic_id in SUBTOPICS_CONTENT:
         valid_topic = True
 
     if not valid_topic:
@@ -72,7 +72,7 @@ async def get_progress_summary(
 
     # Count completed topics
     completed_count = sum(1 for p in progress if p.completed)
-    total_topics = len(MAIN_TOPICS_LIST) + len(SUBTOPICS)
+    total_topics = len(MAIN_TOPICS_LIST) + len(SUBTOPICS_CONTENT)
 
     # Get badges
     badges = db.query(UserBadge).filter(UserBadge.user_id == current_user.id).all()
