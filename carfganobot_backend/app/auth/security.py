@@ -2,8 +2,9 @@ from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
+from fastapi.security.utils import get_authorization_scheme_param
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import User
@@ -79,3 +80,46 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
 async def get_current_active_user(current_user: User = Depends(get_current_user)):
     """Get the current active user."""
     return current_user
+
+
+class OptionalOAuth2PasswordBearer(OAuth2PasswordBearer):
+    """OAuth2 password bearer that doesn't raise an exception for missing token."""
+    
+    def __init__(self, tokenUrl: str):
+        super().__init__(tokenUrl=tokenUrl, auto_error=False)
+    
+    async def __call__(self, request: Request) -> Optional[str]:
+        authorization = request.headers.get("Authorization")
+        scheme, param = get_authorization_scheme_param(authorization)
+        
+        if not authorization or scheme.lower() != "bearer":
+            return None
+            
+        return param
+
+# Create a custom OAuth2 scheme that doesn't raise an exception for missing token
+oauth2_scheme_optional = OptionalOAuth2PasswordBearer(tokenUrl="api/users/token")
+
+async def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme_optional), db: Session = Depends(get_db)):
+    """
+    Get the current user from a JWT token, but don't raise an exception if the token is missing or invalid.
+    This allows endpoints to work for both authenticated and unauthenticated users.
+    """
+    if not token:
+        return None
+        
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        
+        if email is None:
+            return None
+            
+        token_data = TokenData(email=email)
+        user = db.query(User).filter(User.email == token_data.email).first()
+        
+        return user
+    except JWTError:
+        return None
+    except Exception:
+        return None
