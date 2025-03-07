@@ -5,6 +5,7 @@ from app.models.llm import LLMRequest, LLMResponse, UserProficiencyLevel, Conver
 from typing import List, Dict, Optional
 import os
 import logging
+from datetime import datetime
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -31,6 +32,8 @@ def generate_response(request: LLMRequest) -> LLMResponse:
     """
     prompt = request.prompt
     logger.info(f"Generating response for prompt: {prompt[:50]}...")
+    logger.info(f"User context: {request.user_context}")
+    logger.info(f"Conversation history length: {len(request.conversation_history) if request.conversation_history else 0}")
     proficiency_level = request.user_context.proficiency_level if request.user_context else UserProficiencyLevel.BEGINNER
     
     # Default response and follow-up questions (fallback)
@@ -56,7 +59,10 @@ def generate_response(request: LLMRequest) -> LLMResponse:
                 "Provide educational content about investing that is accurate and helpful. "
                 f"Adapt your explanations to a {proficiency_level.value.lower()} level. "
                 "Remember that you are providing educational content only, not financial advice. "
-                "Keep responses concise but informative, around 2-3 paragraphs."
+                "Keep responses concise but informative, around 2-3 paragraphs. "
+                "Be dynamic and conversational in your responses, avoiding repetitive or scripted-sounding answers. "
+                "Respond directly to the user's questions with relevant information rather than generic responses. "
+                "Use examples and analogies to make complex investing concepts easier to understand."
             )
             
             # Create conversation history
@@ -73,18 +79,28 @@ def generate_response(request: LLMRequest) -> LLMResponse:
             
             # Generate response using OpenAI API
             logger.info(f"Calling OpenAI API with {len(messages)} messages")
+            logger.info(f"Using model: gpt-3.5-turbo, temperature: 0.7, max_tokens: 500")
+            
+            start_time = datetime.now()
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=messages,
                 temperature=0.7,
                 max_tokens=500
             )
+            end_time = datetime.now()
+            
+            # Log API response time
+            api_response_time = (end_time - start_time).total_seconds()
+            logger.info(f"OpenAI API response time: {api_response_time:.2f} seconds")
             
             # Extract response text
             response_text = response.choices[0].message.content
             logger.info(f"Received response from OpenAI API: {response_text[:50]}...")
+            logger.info(f"Response length: {len(response_text)} characters")
             
             # Generate follow-up questions
+            logger.info("Generating follow-up questions...")
             follow_up_prompt = (
                 "Based on the conversation so far, generate 3 follow-up questions that the user might want to ask about investing. "
                 "Return only the questions as a numbered list, with no additional text."
@@ -94,12 +110,17 @@ def generate_response(request: LLMRequest) -> LLMResponse:
             follow_up_messages.append({"role": "assistant", "content": response_text})
             follow_up_messages.append({"role": "user", "content": follow_up_prompt})
             
+            logger.info(f"Calling OpenAI API for follow-up questions with {len(follow_up_messages)} messages")
+            follow_up_start_time = datetime.now()
             follow_up_response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=follow_up_messages,
                 temperature=0.7,
                 max_tokens=200
             )
+            follow_up_end_time = datetime.now()
+            follow_up_api_time = (follow_up_end_time - follow_up_start_time).total_seconds()
+            logger.info(f"Follow-up questions API response time: {follow_up_api_time:.2f} seconds")
             
             # Parse follow-up questions
             follow_up_text = follow_up_response.choices[0].message.content
@@ -125,7 +146,12 @@ def generate_response(request: LLMRequest) -> LLMResponse:
             
         except Exception as e:
             logger.error(f"Error using OpenAI API: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            logger.error(f"Error details: {str(e)}")
             logger.error(f"Falling back to default response")
+            # Log the stack trace for debugging
+            import traceback
+            logger.error(f"Stack trace: {traceback.format_exc()}")
             # Fall back to default response
     
     # Return default response if OpenAI API is unavailable or fails

@@ -5,7 +5,7 @@ from app.models.chat import ChatRequest, ChatResponse
 from app.models.llm import LLMRequest, ConversationMessage, UserContext, UserProficiencyLevel
 from app.data.investing_topics import INVESTING_TOPICS, SUBTOPICS_CONTENT, MAIN_TOPICS_LIST, DISCLAIMER
 from app.data.enhanced_investing_topics import ENHANCED_INVESTING_TOPICS, ENHANCED_MAIN_TOPICS_LIST, ENHANCED_DISCLAIMER
-from app.services.llm_service import generate_response
+from app.services.simplified_llm_service import generate_response
 from app.services.proficiency_service import (
     determine_user_proficiency as get_proficiency,
     get_completed_topics as get_topics,
@@ -303,113 +303,43 @@ def process_chat_message(request: ChatRequest) -> ChatResponse:
     llm_conversation_history = None
     if conversation_history:
         llm_conversation_history = [
-            ConversationMessage(role=msg.role, content=msg.content, timestamp=msg.timestamp)
+            ConversationMessage(text=msg.content, is_bot=msg.role == "assistant", timestamp=msg.timestamp)
             for msg in conversation_history
         ]
 
     # Check for direct topic selection by keyword
     message_lower = message.lower()
 
-    # Check for greetings
-    if any(greeting in message_lower for greeting in ["hello", "hi", "hey", "greetings"]):
-        # Use enhanced greeting with user's name if available
-        greeting = "Hello"
-        if user_context and user_context.user_id:
-            # In a real implementation, we would fetch the user's name
-            greeting += "! Welcome back to CarfganoBot"
-        else:
-            greeting += "! I'm CarfganoBot from Carfgano Enterprises"
-            
-        response = f"{greeting}, here to help you learn about investing. What topic would you like to explore today?"
+    # For main menu request, return the topic list with AI-generated greeting
+    # This is kept as a special case to provide structured navigation
+    if message_lower in ["menu", "topics", "main menu", "show topics", "show menu"]:
+        # Use the OpenAI API to generate a personalized greeting
+        menu_prompt = "Generate a friendly welcome message for an investing education chatbot called CarfganoBot. The message should invite the user to explore investing topics. Keep it under 2 sentences."
+        
+        # Create LLM request for menu greeting
+        menu_llm_request = LLMRequest(
+            prompt=menu_prompt,
+            user_context=user_context,
+            include_follow_up_questions=False
+        )
+        
+        # Generate personalized menu greeting
+        menu_response = generate_response(menu_llm_request)
+        
+        # Add the topic selection prompt
+        message_text = f"{menu_response.text}\n\nPlease select a topic you'd like to explore:"
         
         # Use enhanced topics list if available
         topics_list = ENHANCED_MAIN_TOPICS_LIST if user_context else MAIN_TOPICS_LIST
         
         return ChatResponse(
-            message=response,
+            message=message_text,
             disclaimer=ENHANCED_DISCLAIMER if user_context else DISCLAIMER,
             suggested_topics=topics_list
         )
 
-    # Check for direct topic matches in enhanced topics first
-    if user_context:
-        for topic_id, topic in ENHANCED_INVESTING_TOPICS.items():
-            topic_keywords = [topic['title'].lower()] + [word.lower() for word in topic_id.split('_')]
-            if any(keyword in message_lower for keyword in topic_keywords):
-                # Track topic progress
-                track_user_topic_progress(user_id, topic_id)
-                return get_enhanced_topic_content(topic_id, user_context.proficiency_level)
-    
-    # Fall back to regular topics if no enhanced match or no user context
-    for topic_id, topic in INVESTING_TOPICS.items():
-        topic_keywords = [topic['title'].lower()] + [word.lower() for word in topic_id.split('_')]
-        if any(keyword in message_lower for keyword in topic_keywords):
-            # Track topic progress for authenticated users
-            if user_id:
-                track_user_topic_progress(user_id, topic_id)
-            return get_topic_content(topic_id)
-
-    # Check for subtopic matches
-    for subtopic_id in SUBTOPICS_CONTENT.keys():
-        subtopic_keywords = [subtopic_id.replace('_', ' ').lower()]
-
-        # Find the subtopic title
-        for topic in INVESTING_TOPICS.values():
-            for subtopic in topic.get('subtopics', []):
-                if subtopic['id'] == subtopic_id:
-                    subtopic_keywords.append(subtopic['title'].lower())
-
-        if any(keyword in message_lower for keyword in subtopic_keywords):
-            # Track subtopic progress for authenticated users
-            if user_id:
-                track_user_topic_progress(user_id, subtopic_id)
-                
-            # Create a custom prompt for the LLM
-            prompt = f"Explain {subtopic_id.replace('_', ' ')} in investing"
-            
-            # Create enhanced LLM request with user context if available
-            llm_request = LLMRequest(
-                prompt=prompt,
-                conversation_history=llm_conversation_history,
-                user_context=user_context,
-                include_follow_up_questions=True
-            )
-            
-            llm_response = generate_response(llm_request)
-
-            # Find parent topic for navigation
-            parent_topic = None
-            parent_id = None
-            for tid, topic in INVESTING_TOPICS.items():
-                for subtopic in topic.get('subtopics', []):
-                    if subtopic['id'] == subtopic_id:
-                        parent_topic = topic['title']
-                        parent_id = topic['id']
-                        break
-                if parent_topic:
-                    break
-
-            suggested_topics = [{"id": parent_id,
-                                 "title": f"Back to {parent_topic}"}] if parent_id else []
-            suggested_topics.append({"id": "main_menu", "title": "Back to Main Topics"})
-            
-            # Add follow-up questions as suggested topics if available
-            if llm_response.follow_up_questions:
-                for i, question in enumerate(llm_response.follow_up_questions):
-                    suggested_topics.append({
-                        "id": f"follow_up_{i}",
-                        "title": question,
-                        "is_question": True
-                    })
-
-            return ChatResponse(
-                message=llm_response.text,
-                disclaimer=ENHANCED_DISCLAIMER if user_context else DISCLAIMER,
-                suggested_topics=suggested_topics,
-                educational_links=llm_response.educational_links
-            )
-
-    # For open-ended questions, use the enhanced LLM with user context
+    # For all other messages, use the OpenAI API to generate a dynamic response
+    # Create enhanced LLM request with user context if available
     llm_request = LLMRequest(
         prompt=message,
         conversation_history=llm_conversation_history,
@@ -417,15 +347,11 @@ def process_chat_message(request: ChatRequest) -> ChatResponse:
         include_follow_up_questions=True
     )
     
+    # Generate response using OpenAI API
     llm_response = generate_response(llm_request)
-
-    # Use suggested topics from LLM response if available, otherwise determine them
-    if llm_response.suggested_topics:
-        suggested_topics = llm_response.suggested_topics
-        # Always add main menu option
-        suggested_topics.append({"id": "main_menu", "title": "Back to Main Topics"})
-    else:
-        suggested_topics = determine_suggested_topics(message_lower, llm_response.text.lower())
+    
+    # Determine suggested topics based on the response
+    suggested_topics = determine_suggested_topics(message_lower, llm_response.text.lower())
     
     # Add follow-up questions as suggested topics if available
     if llm_response.follow_up_questions:
@@ -435,7 +361,10 @@ def process_chat_message(request: ChatRequest) -> ChatResponse:
                 "title": question,
                 "is_question": True
             })
-
+    
+    # Always add main menu option
+    suggested_topics.append({"id": "main_menu", "title": "Back to Main Topics"})
+    
     return ChatResponse(
         message=llm_response.text,
         disclaimer=ENHANCED_DISCLAIMER if user_context else DISCLAIMER,
@@ -447,28 +376,41 @@ def process_chat_message(request: ChatRequest) -> ChatResponse:
 def determine_suggested_topics(user_message: str, response_text: str) -> List[Dict[str, str]]:
     """
     Determine relevant suggested topics based on the user message and response.
+    Uses keyword matching with weighted scoring to suggest the most relevant topics.
     """
     suggested_topics = []
 
-    # Check for topic keywords in both user message and response
+    # Enhanced topic keywords with more comprehensive coverage
     topic_keywords = {
-        "investing_basics": ["basic", "beginner", "start", "new to investing"],
-        "stocks": ["stock", "share", "equity", "dividend"],
-        "bonds": ["bond", "fixed income", "debt", "yield", "coupon"],
-        "risk_management": ["risk", "diversif", "portfolio", "allocation"],
-        "market_analysis": ["analysis", "technical", "fundamental", "chart"],
-        "advanced_concepts": ["advanced", "option", "future", "derivative", "alternative"]
+        "investing_basics": ["basic", "beginner", "start", "new to investing", "fundamental", "introduction", 
+                            "getting started", "learn", "education", "first step", "foundation", "principle"],
+        "stocks": ["stock", "share", "equity", "dividend", "shareholder", "market cap", "ipo", "earnings", 
+                  "p/e ratio", "growth stock", "value stock", "blue chip", "nasdaq", "nyse"],
+        "bonds": ["bond", "fixed income", "debt", "yield", "coupon", "interest rate", "treasury", "corporate bond", 
+                 "municipal", "maturity", "duration", "credit rating", "junk bond", "investment grade"],
+        "risk_management": ["risk", "diversif", "portfolio", "allocation", "asset class", "rebalance", "hedge", 
+                           "volatility", "downside", "protection", "insurance", "correlation", "beta", "standard deviation"],
+        "market_analysis": ["analysis", "technical", "fundamental", "chart", "indicator", "pattern", "trend", 
+                           "moving average", "resistance", "support", "volume", "momentum", "oscillator", "candlestick"],
+        "advanced_concepts": ["advanced", "option", "future", "derivative", "alternative", "leverage", "margin", 
+                             "short selling", "arbitrage", "forex", "commodity", "hedge fund", "private equity", "reit"]
     }
 
     # Count keyword matches for each topic
     topic_scores = {topic_id: 0 for topic_id in topic_keywords.keys()}
 
+    # Process user message and response text for better matching
+    user_message_lower = user_message.lower()
+    response_text_lower = response_text.lower()
+
     for topic_id, keywords in topic_keywords.items():
         for keyword in keywords:
-            if keyword in user_message:
+            keyword_lower = keyword.lower()
+            # Check for exact matches or word boundary matches to avoid partial word matches
+            if f" {keyword_lower} " in f" {user_message_lower} " or user_message_lower.startswith(f"{keyword_lower} ") or user_message_lower.endswith(f" {keyword_lower}"):
                 topic_scores[topic_id] += 2  # Higher weight for user message
-            if keyword in response_text:
-                topic_scores[topic_id] += 1
+            if f" {keyword_lower} " in f" {response_text_lower} " or response_text_lower.startswith(f"{keyword_lower} ") or response_text_lower.endswith(f" {keyword_lower}"):
+                topic_scores[topic_id] += 1  # Lower weight for response text
 
     # Get top 3 topics
     top_topics = sorted(topic_scores.items(), key=lambda x: x[1], reverse=True)[:3]
@@ -476,8 +418,20 @@ def determine_suggested_topics(user_message: str, response_text: str) -> List[Di
     # Add suggested topics if they have a score > 0
     for topic_id, score in top_topics:
         if score > 0:
-            topic = INVESTING_TOPICS[topic_id]
+            # Use enhanced topics if available, otherwise fall back to regular topics
+            if topic_id in ENHANCED_INVESTING_TOPICS:
+                topic = ENHANCED_INVESTING_TOPICS[topic_id]
+            else:
+                topic = INVESTING_TOPICS[topic_id]
             suggested_topics.append({"id": topic_id, "title": topic["title"]})
+
+    # If no topics matched, suggest investing basics as a fallback
+    if not suggested_topics:
+        if "investing_basics" in ENHANCED_INVESTING_TOPICS:
+            topic = ENHANCED_INVESTING_TOPICS["investing_basics"]
+        else:
+            topic = INVESTING_TOPICS["investing_basics"]
+        suggested_topics.append({"id": "investing_basics", "title": topic["title"]})
 
     # Always add main menu option
     suggested_topics.append({"id": "main_menu", "title": "Back to Main Topics"})
