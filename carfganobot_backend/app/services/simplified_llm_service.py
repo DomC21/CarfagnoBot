@@ -18,12 +18,19 @@ logger = logging.getLogger(__name__)
 api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key) if api_key else None
 
+# Log OpenAI client initialization status
+if client:
+    logger.info("OpenAI client initialized successfully")
+else:
+    logger.warning("OpenAI client initialization failed - API key may be missing")
+
 def generate_response(request: LLMRequest) -> LLMResponse:
     """
     Generate a response to a user prompt using OpenAI API.
     Falls back to a basic response if API is unavailable.
     """
     prompt = request.prompt
+    logger.info(f"Generating response for prompt: {prompt[:50]}...")
     proficiency_level = request.user_context.proficiency_level if request.user_context else UserProficiencyLevel.BEGINNER
     
     # Default response and follow-up questions (fallback)
@@ -58,13 +65,14 @@ def generate_response(request: LLMRequest) -> LLMResponse:
             # Add conversation history if available
             if request.conversation_history:
                 for msg in request.conversation_history:
-                    role = "assistant" if msg.is_bot else "user"
-                    messages.append({"role": role, "content": msg.text})
+                    role = "assistant" if msg.role == "assistant" else "user"
+                    messages.append({"role": role, "content": msg.content})
             
             # Add current prompt
             messages.append({"role": "user", "content": prompt})
             
             # Generate response using OpenAI API
+            logger.info(f"Calling OpenAI API with {len(messages)} messages")
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=messages,
@@ -74,6 +82,7 @@ def generate_response(request: LLMRequest) -> LLMResponse:
             
             # Extract response text
             response_text = response.choices[0].message.content
+            logger.info(f"Received response from OpenAI API: {response_text[:50]}...")
             
             # Generate follow-up questions
             follow_up_prompt = (
@@ -116,6 +125,7 @@ def generate_response(request: LLMRequest) -> LLMResponse:
             
         except Exception as e:
             logger.error(f"Error using OpenAI API: {e}")
+            logger.error(f"Falling back to default response")
             # Fall back to default response
     
     # Return default response if OpenAI API is unavailable or fails
