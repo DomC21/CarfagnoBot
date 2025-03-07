@@ -426,6 +426,165 @@ def generate_enhanced_response(
     )
 
 
+def generate_openai_response(
+    prompt: str,
+    proficiency_level: UserProficiencyLevel,
+    conversation_history: Optional[List[ConversationMessage]] = None,
+    user_context: Optional[UserContext] = None,
+    include_follow_up: bool = True
+) -> LLMResponse:
+    """
+    Generate an enhanced response using the OpenAI API.
+    Provides personalized content based on user proficiency level and conversation history.
+    """
+    try:
+        # Convert proficiency level to string
+        prof_level = proficiency_level.value
+        
+        # Create system prompt with CarfganoBot persona and proficiency level
+        system_prompt = (
+            "You are CarfganoBot, an educational chatbot from Carfgano Enterprises that helps users learn about investing. "
+            "You provide friendly, approachable, and professional responses about investing topics. "
+            f"The user's proficiency level is {prof_level}. "
+            "Adjust your explanations to be appropriate for this level: "
+            "- For beginners: Use simple language, explain basic concepts, and avoid jargon. "
+            "- For intermediate users: Provide more detailed explanations and introduce some advanced concepts. "
+            "- For advanced users: Discuss sophisticated investing strategies and use technical terminology. "
+            "\n\nImportant guidelines: "
+            "1. Always introduce yourself as 'CarfganoBot from Carfgano Enterprises' in your responses. "
+            "2. Only provide educational information about investing. "
+            "3. Never provide personalized financial advice. "
+            "4. If asked about non-investing topics, politely redirect to investing topics. "
+            "5. Keep responses concise but informative (200-400 words). "
+            "6. Use a friendly, conversational tone."
+        )
+        
+        # Build conversation context
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Add conversation history if available
+        if conversation_history:
+            for msg in conversation_history[-5:]:  # Include last 5 messages for context
+                role = "assistant" if msg.is_bot else "user"
+                messages.append({"role": role, "content": msg.text})
+        
+        # Add current user prompt
+        messages.append({"role": "user", "content": prompt})
+        
+        # Call OpenAI API
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=500,
+            top_p=0.9,
+            frequency_penalty=0.0,
+            presence_penalty=0.0
+        )
+        
+        # Extract response text
+        response_text = response.choices[0].message.content
+        
+        # Ensure response starts with CarfganoBot introduction if not already present
+        if not response_text.startswith("I'm CarfganoBot") and not response_text.startswith("I am CarfganoBot"):
+            response_text = f"I'm CarfganoBot from Carfgano Enterprises. {response_text}"
+        
+        # Generate follow-up questions if requested
+        follow_up_questions = None
+        if include_follow_up:
+            follow_up_questions = get_general_follow_up_questions()
+        
+        # Get suggested topics based on proficiency level
+        suggested_topics = get_suggested_topics_by_proficiency(proficiency_level)
+        
+        # Get educational links based on prompt and proficiency level
+        educational_links = get_educational_links_by_prompt(prompt, proficiency_level)
+        
+        # Create the response
+        return LLMResponse(
+            text=response_text,
+            follow_up_questions=follow_up_questions,
+            suggested_topics=suggested_topics,
+            educational_links=educational_links,
+            tokens_used=response.usage.total_tokens,
+            finish_reason=response.choices[0].finish_reason
+        )
+    except Exception as e:
+        # Log the error
+        print(f"Error calling OpenAI API: {str(e)}")
+        
+        # Fallback to local response generation
+        return generate_enhanced_response(
+            prompt=prompt,
+            proficiency_level=proficiency_level,
+            conversation_history=conversation_history,
+            user_context=user_context,
+            include_follow_up=include_follow_up
+        )
+
+
+def get_suggested_topics_by_proficiency(proficiency_level: UserProficiencyLevel) -> List[Dict[str, str]]:
+    """
+    Get suggested topics based on user proficiency level.
+    """
+    if proficiency_level == UserProficiencyLevel.BEGINNER:
+        return [
+            {"id": "investing_basics", "title": "Investing Basics"},
+            {"id": "stocks", "title": "Stocks"},
+            {"id": "bonds", "title": "Bonds"}
+        ]
+    elif proficiency_level == UserProficiencyLevel.INTERMEDIATE:
+        return [
+            {"id": "risk_management", "title": "Risk Management"},
+            {"id": "market_analysis", "title": "Market Analysis"},
+            {"id": "diversification", "title": "Diversification"}
+        ]
+    else:  # ADVANCED
+        return [
+            {"id": "advanced_concepts", "title": "Advanced Concepts"},
+            {"id": "options_trading", "title": "Options Trading"},
+            {"id": "alternative_investments", "title": "Alternative Investments"}
+        ]
+
+
+def get_educational_links_by_prompt(prompt: str, proficiency_level: UserProficiencyLevel) -> List[Dict[str, str]]:
+    """
+    Get educational links based on the prompt and user proficiency level.
+    """
+    prof_level = proficiency_level.value
+    
+    # Check for topics in the prompt
+    for topic_id, topic_data in ENHANCED_INVESTING_TOPICS.items():
+        topic_keywords = [topic_data['title'].lower()] + [word.lower() for word in topic_id.split('_')]
+        
+        if any(keyword in prompt.lower() for keyword in topic_keywords):
+            # Check if educational links are available for this topic
+            if topic_id in EDUCATIONAL_RESOURCES:
+                return [
+                    {
+                        "title": resource["title"],
+                        "description": resource["description"],
+                        "url": resource["url"]
+                    }
+                    for resource in EDUCATIONAL_RESOURCES[topic_id]
+                    if resource.get('difficulty', 'beginner') == prof_level or not resource.get('difficulty')
+                ][:3]  # Limit to 3 links
+    
+    # Default educational links if no specific topic is found
+    return [
+        {
+            "title": "Investopedia - Investing Essentials",
+            "description": "Comprehensive guide to investing fundamentals",
+            "url": "https://www.investopedia.com/investing-essentials-4689754"
+        },
+        {
+            "title": "SEC.gov - Introduction to Investing",
+            "description": "Official guide from the U.S. Securities and Exchange Commission",
+            "url": "https://www.investor.gov/introduction-investing"
+        }
+    ]
+
+
 def get_general_follow_up_questions() -> List[str]:
     """
     Get general follow-up questions about investing.
