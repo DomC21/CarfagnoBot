@@ -62,7 +62,12 @@ def generate_response(request: LLMRequest) -> LLMResponse:
                 "Keep responses concise but informative, around 2-3 paragraphs. "
                 "Be dynamic and conversational in your responses, avoiding repetitive or scripted-sounding answers. "
                 "Respond directly to the user's questions with relevant information rather than generic responses. "
-                "Use examples and analogies to make complex investing concepts easier to understand."
+                "Use examples and analogies to make complex investing concepts easier to understand. "
+                "You can answer any question the user asks, even if it's not directly related to investing. "
+                "If the question is not about investing, still provide a helpful response but gently guide the conversation "
+                "back to investing topics when appropriate. "
+                "Never say you can't answer a question or that you're limited to certain topics. "
+                "Always provide the most helpful response possible based on your knowledge."
             )
             
             # Create conversation history
@@ -85,8 +90,10 @@ def generate_response(request: LLMRequest) -> LLMResponse:
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=messages,
-                temperature=0.7,
-                max_tokens=500
+                temperature=0.8,  # Slightly higher temperature for more creative responses
+                max_tokens=800,   # Increased token limit for more detailed responses
+                presence_penalty=0.6,  # Add presence penalty to discourage repetitive responses
+                frequency_penalty=0.6  # Add frequency penalty to encourage more diverse language
             )
             end_time = datetime.now()
             
