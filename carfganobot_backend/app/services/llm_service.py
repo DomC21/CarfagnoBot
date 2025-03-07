@@ -471,8 +471,9 @@ def generate_openai_response(
         # Add current user prompt
         messages.append({"role": "user", "content": prompt})
         
-        # Call OpenAI API
-        response = openai.ChatCompletion.create(
+        # Call OpenAI API using the new client interface
+        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=messages,
             temperature=0.7,
@@ -500,13 +501,13 @@ def generate_openai_response(
         # Get educational links based on prompt and proficiency level
         educational_links = get_educational_links_by_prompt(prompt, proficiency_level)
         
-        # Create the response
+        # Create the response with updated response structure for OpenAI v1.0+
         return LLMResponse(
             text=response_text,
             follow_up_questions=follow_up_questions,
             suggested_topics=suggested_topics,
             educational_links=educational_links,
-            tokens_used=response.usage.total_tokens,
+            tokens_used=response.usage.completion_tokens + response.usage.prompt_tokens,
             finish_reason=response.choices[0].finish_reason
         )
     except Exception as e:
