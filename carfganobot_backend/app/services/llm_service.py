@@ -13,13 +13,23 @@ from app.data.enhanced_investing_topics import (
 )
 import re
 import random
+import os
+import openai
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Configure OpenAI API
+openai.api_key = os.getenv("OPENAI_API_KEY", "")
+
 
 
 def generate_response(request: LLMRequest) -> LLMResponse:
     """
-    Generate an enhanced response using the AI coach capabilities.
+    Generate an enhanced response using the OpenAI API and AI coach capabilities.
     Provides personalized content based on user proficiency and conversation history.
     """
     prompt = request.prompt.lower()
@@ -53,16 +63,26 @@ def generate_response(request: LLMRequest) -> LLMResponse:
             finish_reason="stop"
         )
 
-    # Generate a response based on the prompt and user context
-    response = generate_enhanced_response(
-        prompt=prompt,
-        proficiency_level=proficiency_level,
-        conversation_history=request.conversation_history,
-        user_context=request.user_context,
-        include_follow_up=request.include_follow_up_questions
-    )
-
-    return response
+    # Check if OpenAI API key is available
+    if openai.api_key:
+        # Use OpenAI API for enhanced responses
+        return generate_openai_response(
+            prompt=prompt,
+            proficiency_level=proficiency_level,
+            conversation_history=request.conversation_history,
+            user_context=request.user_context,
+            include_follow_up=request.include_follow_up_questions
+        )
+    else:
+        # Fallback to local response generation
+        response = generate_enhanced_response(
+            prompt=prompt,
+            proficiency_level=proficiency_level,
+            conversation_history=request.conversation_history,
+            user_context=request.user_context,
+            include_follow_up=request.include_follow_up_questions
+        )
+        return response
 
 
 def is_investing_related(prompt: str) -> bool:
