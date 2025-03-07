@@ -17,6 +17,7 @@ sqlalchemy = "^2.0.38"
 python-dotenv = "^1.0.1"
 pydantic-extra-types = "^2.10.2"
 pydantic = {extras = ["email"], version = "^2.10.6"}
+openai = "^1.12.0"
 
 
 [tool.poetry.group.dev.dependencies]
