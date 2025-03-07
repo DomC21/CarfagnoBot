@@ -11,29 +11,73 @@ import { Message, Topic } from '../types/chat';
 
 interface ChatInterfaceProps {
   onSendMessage: (message: string) => Promise<void>;
+  onStreamMessage?: (
+    message: string, 
+    onChunk: (chunk: string) => void, 
+    onComplete: () => void
+  ) => Promise<void>;
   onSelectTopic: (topicId: string) => Promise<void>;
   messages: Message[];
   suggestedTopics: Topic[];
   disclaimer: string;
   isLoading: boolean;
+  isStreaming?: boolean;
 }
 
 export function ChatInterface({
   onSendMessage,
+  onStreamMessage,
   onSelectTopic,
   messages,
   suggestedTopics,
   disclaimer,
-  isLoading
+  isLoading,
+  isStreaming = false
 }: ChatInterfaceProps) {
+  console.log('ChatInterface props:', {
+    hasOnSendMessage: !!onSendMessage,
+    hasOnStreamMessage: !!onStreamMessage,
+    messagesCount: messages.length,
+    suggestedTopicsCount: suggestedTopics.length,
+    isLoading,
+    isStreaming
+  });
   const [inputValue, setInputValue] = useState('');
+  const [streamingText, setStreamingText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const streamingTextRef = useRef<HTMLDivElement>(null);
+  const streamingContainerRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to bottom when messages change
+  // Scroll to bottom when messages change or streaming text updates
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, streamingText]);
+  
+  // Force re-render for streaming text updates with animation frame
+  useEffect(() => {
+    if (streamingText && streamingTextRef.current) {
+      // Use requestAnimationFrame for smoother updates
+      requestAnimationFrame(() => {
+        if (streamingTextRef.current) {
+          streamingTextRef.current.innerHTML = streamingText.split('\n').map(line => 
+            `<p>${line || ' '}</p>`
+          ).join('');
+          
+          // Force browser to repaint
+          streamingTextRef.current.style.opacity = '0.99';
+          setTimeout(() => {
+            if (streamingTextRef.current) {
+              streamingTextRef.current.style.opacity = '1';
+            }
+          }, 0);
+          
+          // Scroll to bottom
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }
+      });
+    }
+  }, [streamingText]);
 
   // Focus input on mount
   useEffect(() => {
@@ -42,9 +86,44 @@ export function ChatInterface({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (inputValue.trim() && !isLoading) {
-      await onSendMessage(inputValue);
-      setInputValue('');
+    if (inputValue.trim() && !isLoading && !isStreaming) {
+      const message = inputValue;
+      setInputValue(''); // Clear input immediately for better UX
+      
+      console.log('ChatInterface: handleSubmit called with message:', message);
+      console.log('ChatInterface: onStreamMessage available:', !!onStreamMessage);
+      
+      // Prefer streaming API if available
+      if (onStreamMessage) {
+        console.log('ChatInterface: Using streaming API');
+        // Clear streaming text
+        setStreamingText('');
+        
+        // Use streaming API
+        await onStreamMessage(
+          message,
+          (chunk) => {
+            console.log('ChatInterface: Received chunk of length:', chunk.length);
+            console.log('ChatInterface: Chunk content:', chunk.substring(0, 50) + (chunk.length > 50 ? '...' : ''));
+            
+            // Update streaming text with new chunk
+            setStreamingText((prev) => {
+              const updated = prev + chunk;
+              console.log('ChatInterface: Updated streaming text length:', updated.length);
+              return updated;
+            });
+          },
+          () => {
+            console.log('ChatInterface: Streaming complete');
+            // Streaming complete, clear streaming text as it's now in messages
+            setStreamingText('');
+          }
+        );
+      } else {
+        console.log('ChatInterface: Using regular API');
+        // Fallback to regular API
+        await onSendMessage(message);
+      }
     }
   };
 
@@ -77,6 +156,29 @@ export function ChatInterface({
               </div>
             </div>
           ))}
+          
+          {/* Streaming Text */}
+          {streamingText && (
+            <div className="flex justify-start" ref={streamingContainerRef}>
+              <div className="flex gap-3 max-w-[80%]">
+                <Avatar className="bg-green-600">
+                  <span className="text-white font-semibold">C</span>
+                </Avatar>
+                <Card className="bg-green-50">
+                  <CardContent className="p-3">
+                    <div 
+                      ref={streamingTextRef}
+                      className="prose prose-sm max-w-none streaming-text"
+                      style={{ minHeight: '20px' }}
+                    >
+                      {/* Streaming text will be inserted here via useEffect */}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          )}
+          
           <div ref={messagesEndRef} />
         </div>
       </ScrollArea>
@@ -116,9 +218,9 @@ export function ChatInterface({
             onChange={(e) => setInputValue(e.target.value)}
             placeholder="Ask about investing..."
             className="flex-1"
-            disabled={isLoading}
+            disabled={isLoading || isStreaming}
           />
-          <Button type="submit" disabled={isLoading || !inputValue.trim()}>
+          <Button type="submit" disabled={isLoading || isStreaming || !inputValue.trim()}>
             <Send size={18} />
           </Button>
           <Button 
@@ -126,6 +228,7 @@ export function ChatInterface({
             variant="outline" 
             onClick={() => onSelectTopic('main_menu')}
             title="Show topics menu"
+            disabled={isStreaming}
           >
             <BookOpen size={18} />
           </Button>

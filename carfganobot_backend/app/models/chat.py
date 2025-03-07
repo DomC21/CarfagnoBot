@@ -13,6 +13,12 @@ class ChatRequest(BaseModel):
     selected_topic: Optional[str] = None
     user_id: Optional[int] = None
 
+class StreamingChatRequest(BaseModel):
+    message: str
+    conversation_history: Optional[List[Message]] = []
+    selected_topic: Optional[str] = None
+    user_id: Optional[int] = None
+
 class TopicRequest(BaseModel):
     topic_id: str
     user_id: Optional[int] = None

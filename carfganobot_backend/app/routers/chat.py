@@ -1,14 +1,17 @@
 from fastapi import APIRouter, HTTPException, Depends
-from app.models.chat import ChatRequest, TopicRequest, ChatResponse
+from fastapi.responses import StreamingResponse
+from app.models.chat import ChatRequest, TopicRequest, ChatResponse, StreamingChatRequest
 from app.services.chat_service import (
     get_topic_content, process_chat_message, get_enhanced_topic_content,
     determine_user_proficiency
 )
-from app.models.llm import UserProficiencyLevel
+from app.services.simplified_llm_service import generate_streaming_response
+from app.models.llm import UserProficiencyLevel, LLMRequest, UserContext, ConversationMessage
 from app.data.investing_topics import MAIN_TOPICS_LIST, DISCLAIMER
 from app.data.enhanced_investing_topics import ENHANCED_MAIN_TOPICS_LIST, ENHANCED_DISCLAIMER
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from app.auth.security import get_current_user_optional
+import json
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -27,6 +30,48 @@ async def chat_message(request: ChatRequest, current_user: Optional[dict] = Depe
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/stream")
+async def stream_chat_message(request: StreamingChatRequest, current_user: Optional[dict] = Depends(get_current_user_optional)):
+    """
+    Process a chat message from the user and return a streaming response.
+    Uses enhanced AI coaching if user is authenticated.
+    """
+    try:
+        # Create user context
+        user_context = UserContext(
+            user_id=current_user.get("id") if current_user else None,
+            proficiency_level=determine_user_proficiency(current_user.get("id")) if current_user else UserProficiencyLevel.BEGINNER
+        )
+        
+        # Convert conversation history to the correct format
+        conversation_history = None
+        if request.conversation_history:
+            conversation_history = [
+                ConversationMessage(
+                    role=msg.role,
+                    content=msg.content,
+                    timestamp=msg.timestamp
+                ) for msg in request.conversation_history
+            ]
+        
+        # Create LLM request
+        llm_request = LLMRequest(
+            prompt=request.message,
+            conversation_history=conversation_history,
+            user_context=user_context
+        )
+        
+        # Return streaming response
+        return StreamingResponse(
+            generate_streaming_response(llm_request),
+            media_type="text/event-stream"
+        )
+    except Exception as e:
+        import traceback
+        error_detail = f"{str(e)}\n{traceback.format_exc()}"
+        print(f"Streaming error: {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @router.post("/topic", response_model=ChatResponse)
 async def get_topic(request: TopicRequest, current_user: Optional[dict] = Depends(get_current_user_optional)):

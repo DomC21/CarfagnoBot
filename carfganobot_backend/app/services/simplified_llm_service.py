@@ -1,8 +1,9 @@
 """
 Simplified service for handling LLM interactions with OpenAI API integration.
+Supports both standard and streaming responses.
 """
 from app.models.llm import LLMRequest, LLMResponse, UserProficiencyLevel, ConversationMessage, UserContext
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Generator
 import os
 import logging
 from datetime import datetime
@@ -24,6 +25,101 @@ if client:
     logger.info("OpenAI client initialized successfully")
 else:
     logger.warning("OpenAI client initialization failed - API key may be missing")
+
+def generate_streaming_response(request: LLMRequest) -> Generator[str, None, None]:
+    """
+    Generate a streaming response to a user prompt using OpenAI API.
+    Returns a generator that yields chunks of text as they are received.
+    """
+    prompt = request.prompt
+    logger.info(f"Generating streaming response for prompt: {prompt[:50]}...")
+    logger.info(f"User context: {request.user_context}")
+    logger.info(f"Conversation history length: {len(request.conversation_history) if request.conversation_history else 0}")
+    proficiency_level = request.user_context.proficiency_level if request.user_context else UserProficiencyLevel.BEGINNER
+    
+    # Try to use OpenAI API if available
+    if client:
+        try:
+            # Create system message with CarfganoBot persona
+            system_message = (
+                "You are CarfganoBot, an educational chatbot from Carfgano Enterprises that teaches users about investing. "
+                "You have a friendly, approachable, and professional tone. "
+                "Always introduce yourself as 'CarfganoBot from Carfgano Enterprises' in your first message to a user. "
+                "Provide educational content about investing that is accurate and helpful. "
+                f"Adapt your explanations to a {proficiency_level.value.lower()} level. "
+                "Remember that you are providing educational content only, not financial advice. "
+                "Keep responses concise but informative, around 2-3 paragraphs. "
+                "Be dynamic and conversational in your responses, avoiding repetitive or scripted-sounding answers. "
+                "Respond directly to the user's questions with relevant information rather than generic responses. "
+                "Use examples and analogies to make complex investing concepts easier to understand. "
+                "You can answer any question the user asks, even if it's not directly related to investing. "
+                "If the question is not about investing, still provide a helpful response but gently guide the conversation "
+                "back to investing topics when appropriate. "
+                "Never say you can't answer a question or that you're limited to certain topics. "
+                "Always provide the most helpful response possible based on your knowledge."
+            )
+            
+            # Create conversation history
+            messages = [{"role": "system", "content": system_message}]
+            
+            # Add conversation history if available
+            if request.conversation_history:
+                for msg in request.conversation_history:
+                    role = "assistant" if msg.role == "assistant" else "user"
+                    messages.append({"role": role, "content": msg.content})
+            
+            # Add current prompt
+            messages.append({"role": "user", "content": prompt})
+            
+            # Generate streaming response using OpenAI API
+            logger.info(f"Calling OpenAI API with {len(messages)} messages (streaming)")
+            logger.info(f"Using model: gpt-3.5-turbo, temperature: 0.8, max_tokens: 800")
+            
+            start_time = datetime.now()
+            
+            # Create a streaming response
+            stream = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=messages,
+                temperature=0.8,
+                max_tokens=800,
+                presence_penalty=0.6,
+                frequency_penalty=0.6,
+                stream=True  # Enable streaming
+            )
+            
+            # Yield chunks as they arrive
+            full_response = ""
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    content = chunk.choices[0].delta.content
+                    full_response += content
+                    yield content
+            
+            end_time = datetime.now()
+            api_response_time = (end_time - start_time).total_seconds()
+            logger.info(f"OpenAI API streaming response completed in: {api_response_time:.2f} seconds")
+            logger.info(f"Full response length: {len(full_response)} characters")
+            
+            # Return an empty string to signal the end of the stream
+            yield ""
+            
+        except Exception as e:
+            logger.error(f"Error using OpenAI API for streaming: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            logger.error(f"Error details: {str(e)}")
+            # Log the stack trace for debugging
+            import traceback
+            logger.error(f"Stack trace: {traceback.format_exc()}")
+            # Yield an error message
+            yield "I'm sorry, I encountered an error while generating a response. Please try again."
+    else:
+        # Yield a default response if OpenAI API is unavailable
+        default_response = (
+            "I'm CarfganoBot from Carfgano Enterprises. I'm here to help you learn about investing. "
+            "What topic would you like to explore today?"
+        )
+        yield default_response
 
 def generate_response(request: LLMRequest) -> LLMResponse:
     """
