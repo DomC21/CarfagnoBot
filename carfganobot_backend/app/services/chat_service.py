@@ -6,6 +6,14 @@ from app.models.llm import LLMRequest, ConversationMessage, UserContext, UserPro
 from app.data.investing_topics import INVESTING_TOPICS, SUBTOPICS_CONTENT, MAIN_TOPICS_LIST, DISCLAIMER
 from app.data.enhanced_investing_topics import ENHANCED_INVESTING_TOPICS, ENHANCED_MAIN_TOPICS_LIST, ENHANCED_DISCLAIMER
 from app.services.llm_service import generate_response
+from app.services.proficiency_service import (
+    determine_user_proficiency as get_proficiency,
+    get_completed_topics as get_topics,
+    get_user_quiz_scores as get_quiz_scores,
+    get_user_interests as get_interests,
+    track_topic_progress
+)
+from app.db.database import get_db
 from typing import List, Dict, Optional
 from datetime import datetime
 
@@ -150,54 +158,134 @@ def get_enhanced_topic_content(topic_id: str, proficiency_level: UserProficiency
 def determine_user_proficiency(user_id: int) -> UserProficiencyLevel:
     """
     Determine the user's proficiency level based on their quiz scores and topic completions.
-    In a real implementation, this would query the database for the user's quiz results and topic progress.
+    Uses the proficiency service to query the database for the user's quiz results and topic progress.
     """
-    # Mock implementation - in a real app, we would query the database
-    # For now, return a default proficiency level
-    return UserProficiencyLevel.BEGINNER
+    try:
+        # Get database session
+        db = next(get_db())
+        
+        # Use proficiency service to determine user proficiency
+        proficiency_level = get_proficiency(db, user_id)
+        
+        return proficiency_level
+    except Exception as e:
+        # Log the error in a real implementation
+        print(f"Error determining user proficiency: {e}")
+        # Fall back to beginner level
+        return UserProficiencyLevel.BEGINNER
+    finally:
+        # Close database session
+        if 'db' in locals():
+            db.close()
 
 
 def get_completed_topics(user_id: int) -> List[str]:
     """
     Get the list of topics that the user has completed.
-    In a real implementation, this would query the database for the user's topic progress.
+    Uses the proficiency service to query the database for the user's topic progress.
     """
-    # Mock implementation - in a real app, we would query the database
-    return []
+    try:
+        # Get database session
+        db = next(get_db())
+        
+        # Use proficiency service to get completed topics
+        completed_topics = get_topics(db, user_id)
+        
+        return completed_topics
+    except Exception as e:
+        # Log the error in a real implementation
+        print(f"Error getting completed topics: {e}")
+        # Return empty list as fallback
+        return []
+    finally:
+        # Close database session
+        if 'db' in locals():
+            db.close()
 
 
 def get_user_quiz_scores(user_id: int) -> Dict[str, float]:
     """
     Get the user's quiz scores for different topics.
-    In a real implementation, this would query the database for the user's quiz results.
+    Uses the proficiency service to query the database for the user's quiz results.
     """
-    # Mock implementation - in a real app, we would query the database
-    return {}
+    try:
+        # Get database session
+        db = next(get_db())
+        
+        # Use proficiency service to get quiz scores
+        quiz_scores = get_quiz_scores(db, user_id)
+        
+        return quiz_scores
+    except Exception as e:
+        # Log the error in a real implementation
+        print(f"Error getting user quiz scores: {e}")
+        # Return empty dict as fallback
+        return {}
+    finally:
+        # Close database session
+        if 'db' in locals():
+            db.close()
 
 
 def get_user_interests(user_id: int) -> List[str]:
     """
     Get the user's interests based on their interactions with the app.
-    In a real implementation, this would analyze the user's behavior and quiz results.
+    Uses the proficiency service to analyze the user's behavior and quiz results.
     """
-    # Mock implementation - in a real app, we would query the database
-    return []
+    try:
+        # Get database session
+        db = next(get_db())
+        
+        # Use proficiency service to get user interests
+        interests = get_interests(db, user_id)
+        
+        return interests
+    except Exception as e:
+        # Log the error in a real implementation
+        print(f"Error getting user interests: {e}")
+        # Return empty list as fallback
+        return []
+    finally:
+        # Close database session
+        if 'db' in locals():
+            db.close()
+
+
+def track_user_topic_progress(user_id: int, topic_id: str, completed: bool = False) -> None:
+    """
+    Track a user's progress on a topic.
+    Uses the proficiency service to update the database with the user's topic progress.
+    """
+    try:
+        # Get database session
+        db = next(get_db())
+        
+        # Use proficiency service to track topic progress
+        track_topic_progress(db, user_id, topic_id, completed)
+    except Exception as e:
+        # Log the error in a real implementation
+        print(f"Error tracking topic progress: {e}")
+    finally:
+        # Close database session
+        if 'db' in locals():
+            db.close()
 
 
 def process_chat_message(request: ChatRequest) -> ChatResponse:
     """
     Process a chat message from the user and return a response.
     Uses the enhanced LLM service to generate personalized responses based on user context.
+    Also tracks user topic progress for authenticated users.
     """
     message = request.message
     conversation_history = request.conversation_history
     user_id = request.user_id
+    selected_topic = request.selected_topic
     
     # Create user context if user is authenticated
     user_context = None
     if user_id:
-        # In a real implementation, we would fetch user data from the database
-        # For now, we'll create a simple user context
+        # Get user data from the database
         user_context = UserContext(
             user_id=user_id,
             proficiency_level=determine_user_proficiency(user_id),
@@ -206,6 +294,10 @@ def process_chat_message(request: ChatRequest) -> ChatResponse:
             interests=get_user_interests(user_id),
             last_interaction=datetime.utcnow().isoformat()
         )
+        
+        # Track topic progress if a topic was selected
+        if selected_topic:
+            track_user_topic_progress(user_id, selected_topic)
 
     # Convert conversation history to format expected by LLM
     llm_conversation_history = None
@@ -244,12 +336,17 @@ def process_chat_message(request: ChatRequest) -> ChatResponse:
         for topic_id, topic in ENHANCED_INVESTING_TOPICS.items():
             topic_keywords = [topic['title'].lower()] + [word.lower() for word in topic_id.split('_')]
             if any(keyword in message_lower for keyword in topic_keywords):
+                # Track topic progress
+                track_user_topic_progress(user_id, topic_id)
                 return get_enhanced_topic_content(topic_id, user_context.proficiency_level)
     
     # Fall back to regular topics if no enhanced match or no user context
     for topic_id, topic in INVESTING_TOPICS.items():
         topic_keywords = [topic['title'].lower()] + [word.lower() for word in topic_id.split('_')]
         if any(keyword in message_lower for keyword in topic_keywords):
+            # Track topic progress for authenticated users
+            if user_id:
+                track_user_topic_progress(user_id, topic_id)
             return get_topic_content(topic_id)
 
     # Check for subtopic matches
@@ -263,6 +360,10 @@ def process_chat_message(request: ChatRequest) -> ChatResponse:
                     subtopic_keywords.append(subtopic['title'].lower())
 
         if any(keyword in message_lower for keyword in subtopic_keywords):
+            # Track subtopic progress for authenticated users
+            if user_id:
+                track_user_topic_progress(user_id, subtopic_id)
+                
             # Create a custom prompt for the LLM
             prompt = f"Explain {subtopic_id.replace('_', ' ')} in investing"
             
