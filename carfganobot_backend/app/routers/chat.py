@@ -21,7 +21,7 @@ async def chat_message(request: ChatRequest, current_user: Optional[dict] = Depe
     try:
         # Add user_id to request if user is authenticated
         if current_user:
-            request.user_id = current_user.get("id")
+            request.user_id = current_user.id
         
         response = process_chat_message(request)
         return response
@@ -37,7 +37,7 @@ async def get_topic(request: TopicRequest, current_user: Optional[dict] = Depend
     try:
         # If user is authenticated, use enhanced topic content
         if current_user:
-            user_id = current_user.get("id")
+            user_id = current_user.id
             request.user_id = user_id
             
             # Determine user proficiency level
@@ -81,7 +81,7 @@ async def get_user_proficiency(current_user: dict = Depends(get_current_user_opt
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
     
-    user_id = current_user.get("id")
+    user_id = current_user.id
     proficiency_level = determine_user_proficiency(user_id)
     
     return {

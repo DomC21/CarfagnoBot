@@ -23,7 +23,7 @@ async def get_personalized_learning_path(
     Get a personalized learning path for the authenticated user based on their proficiency level.
     """
     try:
-        user_id = current_user.get("id")
+        user_id = current_user.id
         
         # Determine user proficiency level
         proficiency_level = determine_user_proficiency(db, user_id)
@@ -51,7 +51,7 @@ async def get_learning_progress(
     try:
         from app.services.proficiency_service import get_completed_topics, get_user_quiz_scores
         
-        user_id = current_user.get("id")
+        user_id = current_user.id
         
         # Get completed topics
         completed_topics = get_completed_topics(db, user_id)
@@ -92,7 +92,7 @@ async def mark_topic_completed(
     try:
         from app.services.chat_service import track_user_topic_progress
         
-        user_id = current_user.get("id")
+        user_id = current_user.id
         
         # Mark topic as completed
         track_user_topic_progress(user_id, topic_id, completed=True)
