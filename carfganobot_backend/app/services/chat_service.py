@@ -303,7 +303,12 @@ def process_chat_message(request: ChatRequest) -> ChatResponse:
     llm_conversation_history = None
     if conversation_history:
         llm_conversation_history = [
-            ConversationMessage(role=msg.role, content=msg.content, timestamp=msg.timestamp)
+            ConversationMessage(
+                role=msg.role, 
+                content=msg.content, 
+                timestamp=msg.timestamp,
+                is_bot=msg.role == "assistant"  # Set is_bot based on role
+            )
             for msg in conversation_history
         ]
 
